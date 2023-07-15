@@ -12,5 +12,5 @@ jobs:
     steps:
       - name: Build DotNet
         run: |
-              dotnet restore ./src/
-              dotnet build ./src/ -m --no-restore --no-self-contained --configuration Release --output artifacts_build/
+              dotnet restore ./src/Example.sln
+              dotnet build ./src/Example.sln -m --no-restore --no-self-contained --configuration Release --output artifacts_build/
