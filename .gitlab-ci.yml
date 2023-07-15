@@ -31,7 +31,7 @@ variables:
   # 3) A relative path to the source code from project repository root.
   # NOTE: Please edit this path so it matches the structure of your project!
   SOURCE_CODE_PATH: './src/'
-  NUGET_PROXY: 'https://nexus.cmss.in/repository/nuget.org-proxy/'
+  NUGET_PROXY: 'https://<sample-nexus-proxy-url>/repository/nuget.org-proxy/'
   NUGET_ORG: 'https://api.nuget.org/v3/index.json'
   
 # ### Define global cache rule
@@ -168,7 +168,7 @@ sonarqube_check:
     paths:
       - .sonar/cache
   script:
-    - dotnet sonarscanner begin /k:"TCSPL_DotNet_Core" /d:sonar.host.url="$SONARQUBE_SERVER" /d:sonar.login="$SONARQUBE_TOKEN"
+    - dotnet sonarscanner begin /k:"$SONARQUBE_KEY" /d:sonar.host.url="$SONARQUBE_SERVER" /d:sonar.login="$SONARQUBE_TOKEN"
     - dotnet build ./src/
     - dotnet sonarscanner end /d:sonar.login="$SONARQUBE_TOKEN"
     - cp .sonarqube/out/.sonar/report-task.txt artifacts/sonarqube-report-task.txt
