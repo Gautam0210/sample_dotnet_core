@@ -1,0 +1,214 @@
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/dotNET-Core.gitlab-ci.yml
+
+# This is a simple example illustrating how to build and test .NET Core project
+# with GitLab Continuous Integration / Continuous Delivery.
+#
+# ### Specify the Docker image
+#
+# Instead of installing .NET Core SDK manually, a docker image is used
+# with already pre-installed .NET Core SDK.
+#
+# The 'latest' tag targets the latest available version of .NET Core SDK image.
+# If preferred, you can explicitly specify version of .NET Core (e.g. using '2.2-sdk' tag).
+#
+# See other available tags for .NET Core: https://hub.docker.com/_/microsoft-dotnet
+# Learn more about Docker tags: https://docs.docker.com/glossary/?term=tag
+# and the Docker itself: https://opensource.com/resources/what-docker
+image: mcr.microsoft.com/dotnet/sdk:6.0
+
+# ### Define variables
+#
+variables:
+  # 1) Name of directory where restore and build objects are stored.
+  #OBJECTS_DIRECTORY: 'obj'
+  OBJECTS_DIRECTORY: 'Example.Web/obj'
+  # 2) Name of directory used for keeping restored dependencies.
+  #NUGET_PACKAGES_DIRECTORY: '.nuget'
+  NUGET_PACKAGES_DIRECTORY: 'artifacts_build/'
+  # 3) A relative path to the source code from project repository root.
+  # NOTE: Please edit this path so it matches the structure of your project!
+  SOURCE_CODE_PATH: './src/'
+  NUGET_PROXY: 'https://nexus.cmss.in/repository/nuget.org-proxy/'
+  NUGET_ORG: 'https://api.nuget.org/v3/index.json'
+  
+# ### Define global cache rule
+#
+# Before building the project, all dependencies (e.g. third-party NuGet packages)
+# must be restored. Jobs on GitLab.com's Shared Runners are executed on autoscaled machines.
+#
+# Each machine is used only once (for security reasons) and after that is removed.
+# This means that, before every job, a dependency restore must be performed
+# because restored dependencies are removed along with machines. Fortunately,
+# GitLab provides cache mechanism with the aim of keeping restored dependencies
+# for other jobs.
+#
+# This example shows how to configure cache to pass over restored
+# dependencies for re-use.
+#
+# With global cache rule, cached dependencies will be downloaded before every job
+# and then unpacked to the paths as specified below.
+cache:
+  # Per-stage and per-branch caching.
+  key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+  paths:
+    # Specify three paths that should be cached:
+    #
+    # 1) Main JSON file holding information about package dependency tree, packages versions,
+    # frameworks etc. It also holds information where to the dependencies were restored.
+    - '$SOURCE_CODE_PATH$OBJECTS_DIRECTORY/project.assets.json'
+    # 2) Other NuGet and MSBuild related files. Also needed.
+    - '$SOURCE_CODE_PATH$OBJECTS_DIRECTORY/*.csproj.nuget.*'
+    # 3) Path to the directory where restored dependencies are kept.
+    - '$NUGET_PACKAGES_DIRECTORY'
+  #
+  # 'pull-push' policy means that latest cache will be downloaded (if it exists)
+  # before executing the job, and a newer version will be uploaded afterwards.
+  # Such a setting saves time when there are no changes in referenced third-party
+  # packages.
+  #
+  # For example, if you run a pipeline with changes in your code,
+  # but with no changes within third-party packages which your project is using,
+  # then project restore will happen quickly as all required dependencies
+  # will already be there — unzipped from cache.
+
+  # 'pull-push' policy is the default cache policy, you do not have to specify it explicitly.
+  policy: pull-push
+
+# ### Restore project dependencies
+#
+# NuGet packages by default are restored to '.nuget/packages' directory
+# in the user's home directory. That directory is out of scope of GitLab caching.`
+#
+# To get around this, a custom path can be specified using the '--packages <PATH>' option
+# for 'dotnet restore' command. In this example, a temporary directory is created
+# in the root of project repository, so its content can be cached.
+#  
+#--packages $NUGET_PACKAGES_DIRECTORY'
+
+# Learn more about GitLab cache: https://docs.gitlab.com/ee/ci/caching/index.html
+
+# Learn more about GitLab cache: https://docs.gitlab.com/ee/ci/caching/index.html
+before_script:
+  - ls
+  - apt-get update
+  - apt-get install zip unzip
+  - dotnet nuget locals all --clear
+  - dotnet nuget list source
+  - dotnet nuget disable source nuget.org
+  - dotnet nuget add source $NUGET_PROXY --name nexus_nuget --username $NEXUS_USERNAME --password $NEXUS_PASSWORD --store-password-in-clear-text
+  - dotnet nuget list source
+  - dotnet restore ./src/ --source $NUGET_PROXY
+
+build:
+  stage: build
+  # ## Build all projects discovered from solution file.
+  #
+  # Note: this will fail if you have any projects in your solution that are not
+  # .NET Core-based projects (e.g. WCF service), which is based on .NET Framework,
+  # not .NET Core. In this scenario, you will need to build every .NET Core-based
+  # project by explicitly specifying a relative path to the directory
+  # where it is located (e.g. 'dotnet build ./src/ConsoleApp').
+  # Only one project path can be passed as a parameter to 'dotnet build' command.
+  #Example.Web/Example.Web.csproj  --framework net6.0 --runtime linux-x64
+  script:
+    - 'dotnet build ./src/ --no-restore --no-self-contained --configuration Release --output artifacts_build/'
+    - ls artifacts_build/
+    - mkdir artifacts
+    - zip -r ./artifacts/artifacts_build.zip artifacts_build/
+  tags:
+    - docker 
+  artifacts:
+    expire_in: 3 day
+    paths: 
+        - artifacts/
+
+tests:
+  stage: test
+  dependencies:
+    - build
+  # #### Run the tests
+  #
+  # You can either run tests for all test projects that are defined in your solution
+  # with 'dotnet test' or run tests only for specific project by specifying
+  # a relative path to the directory where it is located (e.g. 'dotnet test ./test/UnitTests').
+  #
+  # You may want to define separate testing jobs for different types of testing
+  ## (e.g. integration tests, unit tests etc).
+  script:
+    - 'dotnet test ./src/ --no-restore --framework net6.0 --logger "html;logfilename=testResults.html" --results-directory ./artifacts/'
+  tags:
+    - docker
+  artifacts:
+    expire_in: 3 day
+    paths: 
+        - artifacts/testResults.html
+
+sonarqube_check:
+  stage: test
+  dependencies:
+    - build
+  before_script:
+    - echo "overriding global before script"
+    - dotnet nuget locals all --clear
+    - dotnet nuget list source
+    - dotnet nuget disable source nuget.org
+    - dotnet nuget add source $NUGET_PROXY --name nexus_nuget --username $NEXUS_USERNAME --password $NEXUS_PASSWORD --store-password-in-clear-text
+    - dotnet restore ./src/ --source $NUGET_PROXY
+    - dotnet nuget list source
+    - dotnet tool install --global dotnet-sonarscanner --add-source $NUGET_ORG --ignore-failed-sources
+    - export PATH="$PATH:/root/.dotnet/tools"
+    - apt-get update
+    - echo y | apt-get install default-jdk
+    - echo y | apt-get install default-jre
+  cache:
+    key: analysis-DotNetCore_tcspl
+    paths:
+      - .sonar/cache
+  script:
+    - dotnet sonarscanner begin /k:"TCSPL_DotNet_Core" /d:sonar.host.url="$SONARQUBE_SERVER" /d:sonar.login="$SONARQUBE_TOKEN"
+    - dotnet build ./src/
+    - dotnet sonarscanner end /d:sonar.login="$SONARQUBE_TOKEN"
+    - cp .sonarqube/out/.sonar/report-task.txt artifacts/sonarqube-report-task.txt
+  tags:
+    - docker
+  artifacts:
+    expire_in: 3 day
+    paths:
+      - artifacts/
+
+deploy:
+  image: maven:3-openjdk-8
+  stage: deploy
+  dependencies:
+    - build
+    - tests
+    - sonarqube_check
+  before_script:
+    - echo "overriding global before script"
+  script:
+    - ls artifacts/
+    - echo $DOTNETCORE_POM > pom.xml
+    - echo $MAVEN_SETTING > ci_settings.xml
+    - mvn deploy:deploy-file -s ci_settings.xml 
+      -Durl=$NEXUS_URL/repository/maven-releases 
+      -DrepositoryId=nexus-releases 
+      -Dfile=artifacts/artifacts_build.zip
+      -Dfiles=artifacts/testResults.html,artifacts/sonarqube-report-task.txt
+      -Dclassifiers=testresults,sonar-report
+      -Dtypes=html,txt
+      -DgroupId=$DEPLOY_GROUP_NAME
+      -DartifactId=$DEPLOY_ARTIFACT_NAME 
+      -Dversion=$CI_COMMIT_TAG
+      -Dpackaging=zip
+      -DgeneratePom=true
+  tags:
+    - docker
+  when: manual
+  after_script:
+    - echo "overriding global after script"
+  only:
+    variables:
+      - $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
