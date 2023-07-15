@@ -1,0 +1,16 @@
+name: dotnet_core
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/dotnet/sdk:6.0
+    steps:
+      - name: Build DotNet
+        run: |
+              dotnet restore ./src/Example.sln
+              dotnet build ./src/Example.sln -m --no-restore --no-self-contained --configuration Release --output artifacts_build/
