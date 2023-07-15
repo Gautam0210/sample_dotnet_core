@@ -11,5 +11,4 @@ jobs:
     container: mcr.microsoft.com/dotnet/sdk:6.0
     steps:
       - name: Build DotNet
-        run : echo "hello world"
-              dotnet --version
+        run: dotnet --version
