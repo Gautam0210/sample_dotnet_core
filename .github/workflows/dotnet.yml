@@ -11,5 +11,6 @@ jobs:
     container: mcr.microsoft.com/dotnet/sdk:6.0
     steps:
       - name: Build DotNet
-        run: dotnet restore ./src/
-             dotnet build ./src/ --no-restore --no-self-contained --configuration Release --output artifacts_build/
+        run: |
+              dotnet restore ./src/
+              dotnet build ./src/ -m --no-restore --no-self-contained --configuration Release --output artifacts_build/
